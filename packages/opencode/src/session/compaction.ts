@@ -5,6 +5,7 @@ import { Session } from "./session"
 import { SessionID, MessageID, PartID } from "./schema"
 import { Provider } from "@/provider/provider"
 import { MessageV2 } from "./message-v2"
+import { RAC } from "./rac"
 import { Token } from "@/util/token"
 import { SessionProcessor } from "./processor"
 import { Agent } from "@/agent/agent"
@@ -51,7 +52,7 @@ type CompletedCompaction = {
 const truncate = (value: string) =>
   value.length <= TOOL_OUTPUT_MAX_CHARS ? value : `${value.slice(0, TOOL_OUTPUT_MAX_CHARS)}\n[truncated]`
 
-const serialize = (message: SessionV1.WithParts) => {
+const serialize = (message: SessionV1.WithParts, addresses?: Map<string, string>) => {
   if (message.info.role === "user") {
     const text = message.parts
       .filter((part): part is SessionV1.TextPart => part.type === "text" && !part.ignored)
@@ -76,7 +77,14 @@ const serialize = (message: SessionV1.WithParts) => {
         const output = part.state.time.compacted
           ? "[Old tool result content cleared]"
           : truncate([part.state.output, ...attachments].join("\n"))
-        return [call, `[Tool result]: ${output}`]
+        // With RAC on, tag the result with its address. Deliberately data, not
+        // instruction: compaction drops these turns from view but not from
+        // storage, so an address the summariser chooses to carry forward stays
+        // retrievable with `remember`. Whether any is worth carrying is left to
+        // the agent — telling it to cite addresses would bias the very
+        // behaviour the evaluation is meant to observe.
+        const address = addresses?.get(part.id)
+        return [call, `[Tool result${address ? ` ${address}` : ""}]: ${output}`]
       }
       if (part.state.status === "error") return [call, `[Tool error]: ${part.state.error}`]
       return [call]
@@ -377,7 +385,16 @@ const layer = Layer.effect(
       )
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-      const conversation = msgs.map(serialize).filter(Boolean).join("\n\n")
+      // Addresses are numbered over the whole stored session, not the view being
+      // summarised, so they match what `remember` will accept afterwards.
+      const addresses = cfg.rac?.enabled
+        ? RAC.identify(
+            yield* session
+              .messages({ sessionID: input.sessionID })
+              .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed(input.messages))),
+          )
+        : undefined
+      const conversation = msgs.map((message) => serialize(message, addresses)).filter(Boolean).join("\n\n")
       const nextPrompt =
         compacting.prompt ??
         [

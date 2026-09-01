@@ -166,6 +166,23 @@ export const Info = Schema.Struct({
       }),
     }),
   ),
+  rac: Schema.optional(
+    Schema.Struct({
+      enabled: Schema.optional(Schema.Boolean).annotate({
+        description: "Enable Random Access Context: collapse old tool results to addressable stubs (default: false)",
+      }),
+      collapse_after_turns: Schema.optional(NonNegativeInt).annotate({
+        description:
+          "Keep tool results verbatim for the turn that produced them plus this many following turns (default: 0). Each increment costs roughly one turn's worth of prompt-cache invalidation per turn.",
+      }),
+      min_lines_to_collapse: Schema.optional(NonNegativeInt).annotate({
+        description: "Tool results shorter than this many lines are never collapsed (default: 50)",
+      }),
+    }),
+  ).annotate({
+    description:
+      "Random Access Context. Collapses old tool results to short stubs on a fixed schedule while stored state stays lossless. Coexists with summarising compaction, which stays recoverable because addresses are assigned over the whole archive rather than the visible view. Enabling this forces compaction.prune off.",
+  }),
   experimental: Schema.optional(
     Schema.Struct({
       disable_paste_summary: Schema.optional(Schema.Boolean),

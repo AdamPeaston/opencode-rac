@@ -1,0 +1,32 @@
+Searches earlier tool results in this conversation by regex, including ones that have been collapsed to stubs.
+
+Returns WHERE matches are — an address, a line number, and the matching line — not the surrounding content. To read the content, follow up with `remember`.
+
+This two-step split is deliberate. A broad search that returned content would cost more context than it saves, which is the whole thing these tools exist to avoid. Search first to find the addresses, then recall only what you actually need.
+
+TYPICAL USE
+
+  grep_memory("ECONNREFUSED")
+  → [t14] shell, line 212: Error: connect ECONNREFUSED 127.0.0.1:5432
+    [t22] read, line 8: # retries on ECONNREFUSED
+
+  remember("t14", 205, 20)
+  → the 20 lines around that error, verbatim
+
+WHEN TO USE THIS TOOL
+
+- You remember something appeared earlier but not which result it was in.
+- You need the exact form of a string — an error, a version, a config key — and only see stubs.
+- You want to check whether something was ever mentioned before re-running an expensive tool.
+
+WHEN NOT TO USE THIS TOOL
+
+- To search the filesystem. Use `grep` for that; this only sees results already produced in this conversation.
+- When you already know the address. Go straight to `remember`.
+
+USAGE NOTES
+
+- The pattern is a JavaScript regular expression, case-insensitive by default.
+- Pass `id` to search within a single result, e.g. `id: "t14"`.
+- Results are capped; you will be told when the list was truncated. Narrow the pattern rather than raising the cap.
+- Line numbers are 1-indexed and line up with `remember`'s `offset`.

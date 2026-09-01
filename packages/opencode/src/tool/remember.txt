@@ -1,0 +1,25 @@
+Retrieves the full, verbatim content of an earlier tool result that has been collapsed to a stub.
+
+Older tool results in this conversation are replaced with a one-line stub to save context. A stub looks like:
+
+  [t14] read(src/app.ts) → 412 lines collapsed. Retrieve verbatim with remember("t14").
+
+The content is not lost — it is stored in full and this tool returns it exactly as originally produced.
+
+WHEN TO USE THIS TOOL
+
+- You need the specific contents of an earlier result and only see its stub.
+- You need to quote or reason about exact details (an error string, a variable name, a config value) that the stub does not carry.
+
+WHEN NOT TO USE THIS TOOL
+
+- Prefer re-running the original tool when the underlying thing may have changed. A remembered result is a snapshot from when it was produced: if a file has been edited since, `read` gives you the truth and `remember` gives you history. For an unchanged file either works, but `read` is never wrong.
+- Do not use it for results already visible in full. If you can see the content, you do not need to recall it.
+
+USAGE NOTES
+
+- Pass the address exactly as it appears in the stub, e.g. "t14".
+- Batch your recalls: if you need three results, issue three calls in the same turn rather than one per turn. Recalling one at a time wastes turns and re-collapses what you just retrieved.
+- Use `offset` and `limit` to pull a line range out of a large result rather than the whole thing.
+- Recalled content is appended to the conversation and is itself subject to collapse later.
+- If the address does not exist you will get a list of nearby valid addresses. Use one of those rather than guessing again.

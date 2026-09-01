@@ -596,6 +596,25 @@ const layer = Layer.effect(
         if (Flag.OPENCODE_DISABLE_PRUNE) {
           result.compaction = { ...result.compaction, prune: false }
         }
+        if (Flag.OPENCODE_RAC) {
+          result.rac = { ...result.rac, enabled: true }
+        }
+        // RAC leaves summarising compaction alone: it fires once and then
+        // leaves a stable prefix, and because RAC addresses are assigned over
+        // the whole archive rather than the visible view, `remember` can still
+        // reach results compaction dropped from view. Compaction becomes
+        // recoverable rather than lossy.
+        //
+        // Prune is different and stays off. It is budget-triggered, so it
+        // rewrites the payload at a position that moves with token pressure
+        // rather than at a fixed distance from the tail — the incremental
+        // in-place eviction pattern that costs cache writes every turn without
+        // ever amortising them. It also replaces output with a placeholder
+        // carrying no address, which is strictly worse than a RAC stub.
+        // Runs after the env override so the flag covers it too.
+        if (result.rac?.enabled) {
+          result.compaction = { ...result.compaction, prune: false }
+        }
 
         return {
           config: result,

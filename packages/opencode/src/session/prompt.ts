@@ -5,6 +5,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import os from "os"
 import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
+import { RAC } from "./rac"
 import { SessionRevert } from "./revert"
 import { Session } from "./session"
 import { Agent } from "../agent/agent"
@@ -1089,9 +1090,16 @@ const layer = Layer.effect(
           yield* status.set(sessionID, { type: "busy" })
           yield* Effect.logInfo("loop", { "session.id": sessionID, step })
 
-          let msgs = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
+          // Read the history once and keep both views. `archive` is the full
+          // session in chronological order and exists only so RAC can assign
+          // addresses that survive compaction; `msgs` is the compacted view the
+          // model actually sees. filterCompactedEffect does exactly this
+          // internally, so splitting it costs no extra query.
+          const streamed = yield* MessageV2.stream(sessionID).pipe(
             Effect.provideService(Database.Service, database),
           )
+          const archive = [...streamed].reverse()
+          let msgs = MessageV2.filterCompacted(streamed)
 
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
@@ -1254,12 +1262,33 @@ const layer = Layer.effect(
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
+            // Random Access Context: collapse old tool results to stubs for the
+            // provider's view only. Pure projection — stored parts are untouched,
+            // so the TUI, revert, resume and sharing all still see full output.
+            const racConfig = (yield* config.get()).rac
+            const rac = racConfig?.enabled
+              ? RAC.project(msgs, {
+                  collapseAfterTurns: racConfig.collapse_after_turns ?? RAC.DEFAULTS.collapseAfterTurns,
+                  minLinesToCollapse: racConfig.min_lines_to_collapse ?? RAC.DEFAULTS.minLinesToCollapse,
+                  // Only promise recall in the stub if the agent actually has
+                  // the tool; permissions can withhold it.
+                  recallable: "remember" in tools,
+                  archive,
+                })
+              : undefined
+            if (rac && rac.stats.collapsed > 0)
+              yield* Effect.logInfo("rac", {
+                "session.id": sessionID,
+                collapsed: rac.stats.collapsed,
+                saved: rac.stats.saved,
+              })
+
             const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
               sys.mcp(agent, session.permission),
-              MessageV2.toModelMessagesEffect(msgs, model),
+              MessageV2.toModelMessagesEffect(rac?.messages ?? msgs, model),
             ])
             const system = [
               ...env,
